@@ -3,53 +3,238 @@ import cors from 'cors';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://discord.com/api/webhooks/1456066499981611197/FpVJ-hWYVBXmKi4WcjimWXunxswV8_31e5WORFxngqDM7W3oMSjvOeBSqg7PWa2gO40c';
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// API Endpoints
+// API Config
 const API_BASE = 'https://world-ecletix.onrender.com/api';
 
-// Simple modern HTML template
+// Webhook Discord
+async function sendWebhook(tipo, dados, cpf = '') {
+  try {
+    const color = tipo === 'CPF' ? 0x9333ea : tipo === 'TELEFONE' ? 0x00bfff : tipo === 'NOME' ? 0x00ff88 : 0xff0000;
+
+    const embed = {
+      title: `🔍 Nova Consulta - ${tipo}`,
+      color: color,
+      fields: [],
+      timestamp: new Date().toISOString()
+    };
+
+    if (tipo === 'CPF') {
+      embed.fields.push(
+        { name: '👤 Nome', value: dados.nome || '-', inline: false },
+        { name: '🆔 CPF', value: formatCPF(dados.cpf) || '-', inline: true },
+        { name: '📅 Nascimento', value: dados.data_nascimento || '-', inline: true },
+        { name: '⚧️ Sexo', value: dados.sexo || '-', inline: true },
+        { name: '👪 Mãe', value: dados.mae || '-', inline: false },
+        { name: '📍 Situação', value: dados.situacao || '-', inline: true },
+        { name: '💰 Renda', value: dados.renda || '-', inline: true }
+      );
+    } else if (tipo === 'TELEFONE' && dados.length > 0) {
+      const first = dados[0];
+      embed.fields.push(
+        { name: '👤 Nome', value: first.nome || '-', inline: false },
+        { name: '🆔 CPF', value: formatCPF(first.cpf) || '-', inline: true },
+        { name: '📱 Telefone', value: first.numero || '-', inline: true },
+        { name: '📡 Status', value: first.status || '-', inline: true },
+        { name: '📶 Operadora', value: first.operadora || '-', inline: true }
+      );
+    } else if (tipo === 'NOME') {
+      embed.fields.push(
+        { name: '👤 Nome', value: dados.nome || '-', inline: false },
+        { name: '🆔 CPF', value: formatCPF(dados.cpf) || '-', inline: true },
+        { name: '📅 Nascimento', value: dados.data_nascimento || '-', inline: true },
+        { name: '⚧️ Sexo', value: dados.sexo || '-', inline: true },
+        { name: '👪 Mãe', value: dados.mae || '-', inline: false }
+      );
+    }
+
+    const payload = {
+      username: 'Mutanox Consultas Bot',
+      avatar_url: 'https://i.imgur.com/8J5Y3qM.png',
+      embeds: [embed]
+    };
+
+    await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    console.log(`✅ Webhook enviado: ${tipo}`);
+  } catch (error) {
+    console.error('❌ Erro ao enviar webhook:', error);
+  }
+}
+
+// Parse CPF data
+function parseCPFData(text) {
+  const data = {};
+
+  // Nome
+  const nomeMatch = text.match(/Nome:\s*(.+)/);
+  if (nomeMatch) data.nome = nomeMatch[1].trim();
+
+  // CPF
+  const cpfMatch = text.match(/CPF:\s*(\d{11})/);
+  if (cpfMatch) data.cpf = cpfMatch[1];
+
+  // Data de Nascimento
+  const nascMatch = text.match(/Data de Nascimento:\s*(.+)/);
+  if (nascMatch) data.data_nascimento = nascMatch[1].trim();
+
+  // Idade
+  const idadeMatch = text.match(/\((\d+)\s+anos\)/);
+  if (idadeMatch) data.idade = idadeMatch[1];
+
+  // Sexo
+  const sexoMatch = text.match(/Sexo:\s*(.+?)\s*-/);
+  if (sexoMatch) data.sexo = sexoMatch[1].trim();
+
+  // Mãe
+  const maeMatch = text.match(/Nome da Mãe:\s*(.+)/);
+  if (maeMatch) data.mae = maeMatch[1].trim();
+
+  // Situação
+  const situacaoMatch = text.match(/Situação Cadastral:\s*(.+)/);
+  if (situacaoMatch) data.situacao = situacaoMatch[1].trim();
+
+  // Renda
+  const rendaMatch = text.match(/Renda:\s*(.+)/);
+  if (rendaMatch) data.renda = rendaMatch[1].trim();
+
+  return data;
+}
+
+// Parse Phone data
+function parsePhoneData(text) {
+  const lines = text.split('\n');
+  const phones = [];
+  let currentPhone = null;
+
+  lines.forEach(line => {
+    if (line.includes('TELEFONE')) {
+      if (currentPhone && currentPhone.numero) {
+        phones.push(currentPhone);
+      }
+      currentPhone = {};
+    }
+
+    if (currentPhone) {
+      const cpfMatch = line.match(/CPF\/CNPJ:\s*(.+)/);
+      if (cpfMatch) currentPhone.cpf = cpfMatch[1].trim();
+
+      const nomeMatch = line.match(/Nome:\s*(.+)/);
+      if (nomeMatch) currentPhone.nome = nomeMatch[1].trim();
+
+      const numeroMatch = line.match(/Número:\s*(\d+)/);
+      if (numeroMatch) currentPhone.numero = numeroMatch[1];
+
+      const statusMatch = line.match(/Status:\s*(.+)/);
+      if (statusMatch) currentPhone.status = statusMatch[1].trim();
+
+      const tipoMatch = line.match(/Tipo:\s*(.+)/);
+      if (tipoMatch) currentPhone.tipo = tipoMatch[1].trim();
+
+      const operadoraMatch = line.match(/Operadora:\s*(.+)/);
+      if (operadoraMatch) currentPhone.operadora = operadoraMatch[1].trim();
+    }
+  });
+
+  if (currentPhone && currentPhone.numero) {
+    phones.push(currentPhone);
+  }
+
+  return phones;
+}
+
+// Parse Name data
+function parseNameData(text) {
+  const data = {};
+
+  const cpfMatch = text.match(/CPF:\s*(\d{11})/);
+  if (cpfMatch) data.cpf = cpfMatch[1];
+
+  const nomeMatch = text.match(/Nome:\s*(.+)/);
+  if (nomeMatch) data.nome = nomeMatch[1].trim();
+
+  const nascMatch = text.match(/Data de Nascimento:\s*(.+)/);
+  if (nascMatch) data.data_nascimento = nascMatch[1].trim();
+
+  const idadeMatch = text.match(/\((\d+)\s+anos\)/);
+  if (idadeMatch) data.idade = idadeMatch[1];
+
+  const maeMatch = text.match(/Nome da Mãe:\s*(.+)/);
+  if (maeMatch) data.mae = maeMatch[1].trim();
+
+  return data;
+}
+
+// Format CPF
+function formatCPF(cpf) {
+  if (!cpf || cpf.length !== 11) return cpf;
+  return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+}
+
+// HTML Template - Design Melhorado e Responsivo
 const htmlTemplate = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Mutanox Consultas</title>
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
       min-height: 100vh;
       color: #ffffff;
-      padding: 20px;
+      padding: 15px;
     }
 
     .container {
-      max-width: 600px;
+      max-width: 550px;
       margin: 0 auto;
     }
 
     .header {
       text-align: center;
-      margin-bottom: 30px;
+      margin-bottom: 25px;
+      padding: 20px;
+    }
+
+    .logo {
+      width: 70px;
+      height: 70px;
+      margin: 0 auto 15px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
     }
 
     .header h1 {
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 700;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      margin-bottom: 10px;
+      background-clip: text;
+      margin-bottom: 8px;
     }
 
     .header p {
@@ -59,46 +244,51 @@ const htmlTemplate = `<!DOCTYPE html>
 
     .tabs {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       margin-bottom: 20px;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+
+    .tabs::-webkit-scrollbar {
+      display: none;
     }
 
     .tab {
-      flex: 1;
-      padding: 12px 20px;
-      background: rgba(255, 255, 255, 0.05);
+      flex: 0 0 auto;
+      min-width: 100px;
+      padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.08);
       border: 2px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
+      border-radius: 12px;
       color: #fff;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.3s ease;
       white-space: nowrap;
     }
 
     .tab:hover {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.12);
+      transform: translateY(-2px);
     }
 
     .tab.active {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       border-color: transparent;
+      box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
     }
 
-    .form-container {
-      display: none;
+    .form-card {
       background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 15px;
+      border-radius: 16px;
       padding: 25px;
       margin-bottom: 20px;
-    }
-
-    .form-container.active {
-      display: block;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
 
     .input-group {
@@ -108,17 +298,19 @@ const htmlTemplate = `<!DOCTYPE html>
     label {
       display: block;
       color: #aaa;
-      font-size: 14px;
+      font-size: 13px;
+      font-weight: 600;
       margin-bottom: 8px;
-      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
     input {
       width: 100%;
-      padding: 15px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 2px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
       color: #fff;
       font-size: 16px;
       transition: all 0.3s ease;
@@ -127,7 +319,8 @@ const htmlTemplate = `<!DOCTYPE html>
     input:focus {
       outline: none;
       border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+      background: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
     }
 
     input::placeholder {
@@ -136,45 +329,67 @@ const htmlTemplate = `<!DOCTYPE html>
 
     button {
       width: 100%;
-      padding: 15px;
+      padding: 16px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
       color: #fff;
       font-size: 16px;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
       transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
     }
 
-    button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+    button:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(-1px);
     }
 
     button:disabled {
       opacity: 0.5;
       cursor: not-allowed;
       transform: none;
+      box-shadow: none;
     }
 
     .status {
       text-align: center;
       margin-top: 15px;
-      color: #888;
+      padding: 12px;
+      border-radius: 8px;
       font-size: 14px;
       min-height: 20px;
     }
 
+    .status.success {
+      background: rgba(16, 185, 129, 0.2);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status.error {
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
     .loading {
       display: inline-block;
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       border: 3px solid rgba(255, 255, 255, 0.3);
       border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
       margin-left: 10px;
+      vertical-align: middle;
     }
 
     @keyframes spin {
@@ -182,80 +397,110 @@ const htmlTemplate = `<!DOCTYPE html>
       100% { transform: rotate(360deg); }
     }
 
-    .results {
+    .results-card {
       display: none;
       background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 15px;
+      border-radius: 16px;
       padding: 25px;
       margin-bottom: 20px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      animation: slideUp 0.4s ease;
     }
 
-    .results.active {
+    .results-card.show {
       display: block;
     }
 
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
     .results-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 20px;
+      text-align: center;
       padding-bottom: 20px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 20px;
     }
 
     .results-header h2 {
       font-size: 20px;
-      font-weight: 600;
-      color: #4ade80;
+      font-weight: 700;
+      color: #10b981;
+      margin-bottom: 5px;
     }
 
-    .data-row {
+    .data-item {
       display: flex;
-      padding: 12px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    .data-row:last-child {
+    .data-item:last-child {
       border-bottom: none;
     }
 
     .data-label {
-      flex: 0 0 140px;
       color: #888;
       font-size: 14px;
       font-weight: 500;
     }
 
     .data-value {
-      flex: 1;
       color: #fff;
       font-size: 15px;
+      font-weight: 600;
+      text-align: right;
       word-break: break-word;
+      max-width: 65%;
     }
 
     .data-value.success {
-      color: #4ade80;
+      color: #10b981;
+    }
+
+    .data-value.warning {
+      color: #f59e0b;
     }
 
     .data-value.error {
-      color: #f87171;
+      color: #ef4444;
     }
 
-    .new-search {
-      text-align: center;
+    .new-search-btn {
+      width: 100%;
+      padding: 15px;
+      background: transparent;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
       margin-top: 20px;
     }
 
-    .new-search button {
-      background: transparent;
-      border: 2px solid rgba(255, 255, 255, 0.2);
-      padding: 12px 30px;
+    .new-search-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.3);
     }
 
-    .new-search button:hover {
-      background: rgba(255, 255, 255, 0.1);
-      transform: translateY(-1px);
+    .footer {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-size: 12px;
     }
 
     @media (max-width: 480px) {
@@ -267,34 +512,77 @@ const htmlTemplate = `<!DOCTYPE html>
         max-width: 100%;
       }
 
+      .header {
+        padding: 15px;
+        margin-bottom: 20px;
+      }
+
+      .logo {
+        width: 60px;
+        height: 60px;
+        font-size: 24px;
+        margin-bottom: 12px;
+      }
+
+      .header h1 {
+        font-size: 20px;
+      }
+
       .tabs {
         gap: 5px;
+        margin-bottom: 15px;
       }
 
       .tab {
-        padding: 10px 12px;
-        font-size: 12px;
+        padding: 12px 15px;
+        font-size: 13px;
+        min-width: 80px;
       }
 
-      .form-container {
+      .form-card {
         padding: 20px;
+        border-radius: 12px;
       }
 
-      .results {
+      .results-card {
         padding: 20px;
+        border-radius: 12px;
+      }
+
+      input {
+        padding: 14px;
+        font-size: 15px;
+      }
+
+      button {
+        padding: 14px;
+        font-size: 14px;
+      }
+
+      .data-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+        padding: 12px 0;
       }
 
       .data-label {
-        flex: 0 0 100px;
         font-size: 13px;
       }
 
       .data-value {
+        text-align: left;
+        max-width: 100%;
         font-size: 14px;
       }
 
-      .header h1 {
-        font-size: 22px;
+      .data-value.success,
+      .data-value.warning,
+      .data-value.error {
+        font-size: 13px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.05);
       }
     }
   </style>
@@ -302,153 +590,150 @@ const htmlTemplate = `<!DOCTYPE html>
 <body>
   <div class="container">
     <div class="header">
+      <div class="logo">🔍</div>
       <h1>Mutanox Consultas</h1>
-      <p>Sistema de Consultas em Tempo Real</p>
+      <p>Sistema Avançado de Consultas em Tempo Real</p>
     </div>
 
     <!-- Tabs -->
     <div class="tabs">
-      <button class="tab active" data-tab="cpf">CPF</button>
-      <button class="tab" data-tab="telefone">Telefone</button>
-      <button class="tab" data-tab="nome">Nome</button>
+      <button class="tab active" data-tab="cpf">🆔 CPF</button>
+      <button class="tab" data-tab="telefone">📱 Telefone</button>
+      <button class="tab" data-tab="nome">👤 Nome</button>
     </div>
 
     <!-- CPF Form -->
-    <div class="form-container active" id="cpfForm">
+    <div class="form-card" id="cpfForm">
       <div class="input-group">
         <label>CPF (11 dígitos)</label>
-        <input type="text" id="cpfInput" placeholder="Digite seu CPF" maxlength="11" autocomplete="off">
+        <input type="tel" id="cpfInput" placeholder="Digite seu CPF" maxlength="11" autocomplete="off">
       </div>
-      <button id="cpfButton">Consultar CPF</button>
+      <button id="cpfButton" onclick="consultarCPF()">Consultar CPF</button>
       <div class="status" id="cpfStatus"></div>
     </div>
 
     <!-- Telefone Form -->
-    <div class="form-container" id="telefoneForm">
+    <div class="form-card" id="telefoneForm" style="display: none;">
       <div class="input-group">
         <label>Telefone (apenas números)</label>
-        <input type="tel" id="telefoneInput" placeholder="Digite o número de telefone" autocomplete="off">
+        <input type="tel" id="telefoneInput" placeholder="Digite o número" autocomplete="off">
       </div>
-      <button id="telefoneButton">Consultar Telefone</button>
+      <button id="telefoneButton" onclick="consultarTelefone()">Consultar Telefone</button>
       <div class="status" id="telefoneStatus"></div>
     </div>
 
     <!-- Nome Form -->
-    <div class="form-container" id="nomeForm">
+    <div class="form-card" id="nomeForm" style="display: none;">
       <div class="input-group">
         <label>Nome Completo</label>
         <input type="text" id="nomeInput" placeholder="Digite o nome completo" autocomplete="off">
       </div>
-      <button id="nomeButton">Consultar Nome</button>
+      <button id="nomeButton" onclick="consultarNome()">Consultar Nome</button>
       <div class="status" id="nomeStatus"></div>
     </div>
 
     <!-- Results -->
-    <div class="results" id="results">
+    <div class="results-card" id="resultsCard">
       <div class="results-header">
-        <h2>✓ Consulta Realizada</h2>
+        <h2>✅ Consulta Realizada</h2>
+        <p id="resultsSubtext" style="color: #888; font-size: 14px; margin-top: 5px;"></p>
       </div>
 
       <div id="cpfResults" style="display: none;">
-        <div class="data-row">
-          <div class="data-label">Nome</div>
-          <div class="data-value" id="resultNome">-</div>
+        <div class="data-item">
+          <span class="data-label">👤 Nome</span>
+          <span class="data-value" id="cpfNome">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">CPF</div>
-          <div class="data-value" id="resultCPF">-</div>
+        <div class="data-item">
+          <span class="data-label">🆔 CPF</span>
+          <span class="data-value" id="cpfCPF">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Data de Nascimento</div>
-          <div class="data-value" id="resultNascimento">-</div>
+        <div class="data-item">
+          <span class="data-label">📅 Nascimento</span>
+          <span class="data-value" id="cpfNascimento">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Idade</div>
-          <div class="data-value" id="resultIdade">-</div>
+        <div class="data-item">
+          <span class="data-label">⚧️ Sexo</span>
+          <span class="data-value" id="cpfSexo">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Sexo</div>
-          <div class="data-value" id="resultSexo">-</div>
+        <div class="data-item">
+          <span class="data-label">👪 Mãe</span>
+          <span class="data-value" id="cpfMae">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Mãe</div>
-          <div class="data-value" id="resultMae">-</div>
+        <div class="data-item">
+          <span class="data-label">📍 Situação</span>
+          <span class="data-value success" id="cpfSituacao">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Situação Cadastral</div>
-          <div class="data-value" id="resultSituacao">-</div>
+        <div class="data-item">
+          <span class="data-label">💰 Renda</span>
+          <span class="data-value" id="cpfRenda">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Renda</div>
-          <div class="data-value" id="resultRenda">-</div>
+        <div class="data-item">
+          <span class="data-label">📱 Telefone</span>
+          <span class="data-value" id="cpfTelefone">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Telefone</div>
-          <div class="data-value" id="resultTelefone">-</div>
-        </div>
-        <div class="data-row">
-          <div class="data-label">Operadora</div>
-          <div class="data-value" id="resultOperadora">-</div>
-        </div>
-        <div class="data-row">
-          <div class="data-label">E-mail</div>
-          <div class="data-value" id="resultEmail">-</div>
+        <div class="data-item">
+          <span class="data-label">📶 Operadora</span>
+          <span class="data-value" id="cpfOperadora">-</span>
         </div>
       </div>
 
       <div id="telefoneResults" style="display: none;">
-        <div class="data-row">
-          <div class="data-label">Nome</div>
-          <div class="data-value" id="resultTelNome">-</div>
+        <div class="data-item">
+          <span class="data-label">👤 Nome</span>
+          <span class="data-value" id="telNome">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">CPF</div>
-          <div class="data-value" id="resultTelCPF">-</div>
+        <div class="data-item">
+          <span class="data-label">🆔 CPF</span>
+          <span class="data-value" id="telCPF">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Telefone</div>
-          <div class="data-value" id="resultTelNumero">-</div>
+        <div class="data-item">
+          <span class="data-label">📱 Telefone</span>
+          <span class="data-value" id="telNumero">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Status</div>
-          <div class="data-value" id="resultTelStatus">-</div>
+        <div class="data-item">
+          <span class="data-label">📡 Status</span>
+          <span class="data-value" id="telStatus">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Tipo</div>
-          <div class="data-value" id="resultTelTipo">-</div>
+        <div class="data-item">
+          <span class="data-label">📶 Operadora</span>
+          <span class="data-value" id="telOperadora">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Operadora</div>
-          <div class="data-value" id="resultTelOperadora">-</div>
+        <div class="data-item">
+          <span class="data-label">📲 Tipo</span>
+          <span class="data-value" id="telTipo">-</span>
         </div>
       </div>
 
       <div id="nomeResults" style="display: none;">
-        <div class="data-row">
-          <div class="data-label">Nome</div>
-          <div class="data-value" id="resultNomeCompleto">-</div>
+        <div class="data-item">
+          <span class="data-label">👤 Nome</span>
+          <span class="data-value" id="nomeNome">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">CPF</div>
-          <div class="data-value" id="resultNomeCPF">-</div>
+        <div class="data-item">
+          <span class="data-label">🆔 CPF</span>
+          <span class="data-value" id="nomeCPF">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Data de Nascimento</div>
-          <div class="data-value" id="resultNomeNascimento">-</div>
+        <div class="data-item">
+          <span class="data-label">📅 Nascimento</span>
+          <span class="data-value" id="nomeNascimento">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Idade</div>
-          <div class="data-value" id="resultNomeIdade">-</div>
+        <div class="data-item">
+          <span class="data-label">⚧️ Sexo</span>
+          <span class="data-value" id="nomeSexo">-</span>
         </div>
-        <div class="data-row">
-          <div class="data-label">Nome da Mãe</div>
-          <div class="data-value" id="resultNomeMae">-</div>
+        <div class="data-item">
+          <span class="data-label">👪 Mãe</span>
+          <span class="data-value" id="nomeMae">-</span>
         </div>
       </div>
 
-      <div class="new-search">
-        <button id="newSearchBtn">← Nova Consulta</button>
-      </div>
+      <button class="new-search-btn" onclick="novaConsulta()">← Nova Consulta</button>
+    </div>
+
+    <div class="footer">
+      <p>© 2026 Mutanox Consultas. Todos os direitos reservados.</p>
+      <p>Desenvolvido com 💜 por MutanoX</p>
     </div>
   </div>
 
@@ -462,7 +747,6 @@ const htmlTemplate = `<!DOCTYPE html>
     };
 
     function switchTab(tabName) {
-      // Update tab styles
       tabs.forEach(tab => {
         tab.classList.remove('active');
         if (tab.dataset.tab === tabName) {
@@ -470,45 +754,62 @@ const htmlTemplate = `<!DOCTYPE html>
         }
       });
 
-      // Update form visibility
       Object.keys(forms).forEach(key => {
-        forms[key].classList.remove('active');
+        forms[key].style.display = 'none';
         if (key === tabName) {
-          forms[key].classList.add('active');
+          forms[key].style.display = 'block';
         }
       });
 
       // Hide results
-      document.getElementById('results').classList.remove('active');
-      document.getElementById('cpfResults').style.display = 'none';
-      document.getElementById('telefoneResults').style.display = 'none';
-      document.getElementById('nomeResults').style.display = 'none';
-
-      // Clear status
-      document.getElementById('cpfStatus').textContent = '';
-      document.getElementById('telefoneStatus').textContent = '';
-      document.getElementById('nomeStatus').textContent = '';
+      document.getElementById('resultsCard').classList.remove('show');
+      clearStatus();
     }
 
     tabs.forEach(tab => {
       tab.addEventListener('click', () => switchTab(tab.dataset.tab));
     });
 
+    function clearStatus() {
+      document.getElementById('cpfStatus').innerHTML = '';
+      document.getElementById('telefoneStatus').innerHTML = '';
+      document.getElementById('nomeStatus').innerHTML = '';
+    }
+
+    function showLoading(type) {
+      const statusEl = document.getElementById(type + 'Status');
+      statusEl.innerHTML = '<span class="loading"></span> Consultando...';
+      statusEl.className = 'status';
+      document.getElementById(type + 'Button').disabled = true;
+    }
+
+    function hideLoading(type) {
+      document.getElementById(type + 'Button').disabled = false;
+    }
+
+    function showError(type, message) {
+      const statusEl = document.getElementById(type + 'Status');
+      statusEl.innerHTML = '❌ ' + message;
+      statusEl.className = 'status error';
+    }
+
+    function showSuccess(type, message) {
+      const statusEl = document.getElementById(type + 'Status');
+      statusEl.innerHTML = '✅ ' + message;
+      statusEl.className = 'status success';
+    }
+
     // CPF Consultation
-    const cpfInput = document.getElementById('cpfInput');
-    const cpfButton = document.getElementById('cpfButton');
-    const cpfStatus = document.getElementById('cpfStatus');
+    async function consultarCPF() {
+      const cpf = document.getElementById('cpfInput').value.replace(/\\D/g, '');
 
-    cpfButton.addEventListener('click', async () => {
-      const cpf = cpfInput.value.trim();
-
-      if (!cpf || cpf.length !== 11 || !/^\\d+$/.test(cpf)) {
-        cpfStatus.textContent = '❌ CPF deve ter 11 dígitos numéricos';
+      if (!cpf || cpf.length !== 11) {
+        showError('cpf', 'CPF deve ter 11 dígitos numéricos');
         return;
       }
 
-      cpfButton.disabled = true;
-      cpfStatus.innerHTML = '<span class="loading"></span> Consultando...';
+      showLoading('cpf');
+      clearStatus();
 
       try {
         const response = await fetch('/api/cpf', {
@@ -520,33 +821,47 @@ const htmlTemplate = `<!DOCTYPE html>
         const data = await response.json();
 
         if (data.success) {
-          showResults('cpf', data.data);
-          cpfStatus.textContent = '✅ Consulta realizada com sucesso!';
+          showCPFResults(data.data);
+          showSuccess('cpf', 'Consulta realizada com sucesso!');
+          showResultsCard('cpf');
         } else {
-          cpfStatus.textContent = '❌ ' + data.error;
+          showError('cpf', data.error || 'Erro ao consultar CPF');
         }
       } catch (error) {
-        cpfStatus.textContent = '❌ Erro de conexão. Tente novamente.';
+        showError('cpf', 'Erro de conexão. Tente novamente.');
       } finally {
-        cpfButton.disabled = false;
+        hideLoading('cpf');
       }
-    });
+    }
+
+    function showCPFResults(data) {
+      document.getElementById('cpfNome').textContent = data.nome || '-';
+      document.getElementById('cpfCPF').textContent = formatCPF(data.cpf) || '-';
+      document.getElementById('cpfNascimento').textContent = data.data_nascimento || '-';
+      document.getElementById('cpfSexo').textContent = data.sexo || '-';
+      document.getElementById('cpfMae').textContent = data.mae || '-';
+      document.getElementById('cpfSituacao').textContent = data.situacao || '-';
+      document.getElementById('cpfRenda').textContent = data.renda || '-';
+      document.getElementById('cpfTelefone').textContent = data.telefone || '-';
+      document.getElementById('cpfOperadora').textContent = data.operadora || '-';
+
+      document.getElementById('cpfResults').style.display = 'block';
+      document.getElementById('telefoneResults').style.display = 'none';
+      document.getElementById('nomeResults').style.display = 'none';
+      document.getElementById('resultsSubtext').textContent = 'Dados completos do CPF consultado';
+    }
 
     // Phone Consultation
-    const telefoneInput = document.getElementById('telefoneInput');
-    const telefoneButton = document.getElementById('telefoneButton');
-    const telefoneStatus = document.getElementById('telefoneStatus');
-
-    telefoneButton.addEventListener('click', async () => {
-      const telefone = telefoneInput.value.replace(/\\D/g, '');
+    async function consultarTelefone() {
+      const telefone = document.getElementById('telefoneInput').value.replace(/\\D/g, '');
 
       if (!telefone || telefone.length < 10) {
-        telefoneStatus.textContent = '❌ Digite um número válido (mínimo 10 dígitos)';
+        showError('telefone', 'Digite um número válido (mínimo 10 dígitos)');
         return;
       }
 
-      telefoneButton.disabled = true;
-      telefoneStatus.innerHTML = '<span class="loading"></span> Consultando...';
+      showLoading('telefone');
+      clearStatus();
 
       try {
         const response = await fetch('/api/telefone', {
@@ -558,33 +873,61 @@ const htmlTemplate = `<!DOCTYPE html>
         const data = await response.json();
 
         if (data.success) {
-          showResults('telefone', data.data);
-          telefoneStatus.textContent = '✅ ' + data.data.length + ' telefone(s) encontrado(s)';
+          if (data.data && data.data.length > 0) {
+            showTelefoneResults(data.data);
+            showSuccess('telefone', data.data.length + ' telefone(s) encontrado(s)');
+            showResultsCard('telefone');
+          } else {
+            showError('telefone', 'Nenhum telefone encontrado');
+          }
         } else {
-          telefoneStatus.textContent = '❌ ' + data.error;
+          showError('telefone', data.error || 'Erro ao consultar telefone');
         }
       } catch (error) {
-        telefoneStatus.textContent = '❌ Erro de conexão. Tente novamente.';
+        showError('telefone', 'Erro de conexão. Tente novamente.');
       } finally {
-        telefoneButton.disabled = false;
+        hideLoading('telefone');
       }
-    });
+    }
+
+    function showTelefoneResults(data) {
+      const first = data[0];
+      document.getElementById('telNome').textContent = first.nome || '-';
+      document.getElementById('telCPF').textContent = formatCPF(first.cpf) || '-';
+      document.getElementById('telNumero').textContent = first.numero || '-';
+
+      const statusEl = document.getElementById('telStatus');
+      const statusText = first.status || '-';
+      if (statusText.toUpperCase().includes('BLOQUEADO') || statusText.toUpperCase().includes('CANCELADO')) {
+        statusEl.textContent = statusText + ' ⚠️';
+        statusEl.className = 'data-value warning';
+      } else if (statusText.toUpperCase().includes('ATIVO')) {
+        statusEl.textContent = statusText + ' ✓';
+        statusEl.className = 'data-value success';
+      } else {
+        statusEl.textContent = statusText;
+      }
+
+      document.getElementById('telTipo').textContent = first.tipo || '-';
+      document.getElementById('telOperadora').textContent = first.operadora || '-';
+
+      document.getElementById('cpfResults').style.display = 'none';
+      document.getElementById('telefoneResults').style.display = 'block';
+      document.getElementById('nomeResults').style.display = 'none';
+      document.getElementById('resultsSubtext').textContent = data.length + ' telefone(s) encontrado(s)';
+    }
 
     // Name Consultation
-    const nomeInput = document.getElementById('nomeInput');
-    const nomeButton = document.getElementById('nomeButton');
-    const nomeStatus = document.getElementById('nomeStatus');
-
-    nomeButton.addEventListener('click', async () => {
-      const nome = nomeInput.value.trim();
+    async function consultarNome() {
+      const nome = document.getElementById('nomeInput').value.trim();
 
       if (!nome || nome.length < 3) {
-        nomeStatus.textContent = '❌ Digite um nome válido (mínimo 3 caracteres)';
+        showError('nome', 'Digite um nome válido (mínimo 3 caracteres)');
         return;
       }
 
-      nomeButton.disabled = true;
-      nomeStatus.innerHTML = '<span class="loading"></span> Consultando...';
+      showLoading('nome');
+      clearStatus();
 
       try {
         const response = await fetch('/api/nome', {
@@ -596,78 +939,58 @@ const htmlTemplate = `<!DOCTYPE html>
         const data = await response.json();
 
         if (data.success) {
-          showResults('nome', data.data);
-          nomeStatus.textContent = '✅ Consulta realizada com sucesso!';
+          showNomeResults(data.data);
+          showSuccess('nome', 'Consulta realizada com sucesso!');
+          showResultsCard('nome');
         } else {
-          nomeStatus.textContent = '❌ ' + data.error;
+          showError('nome', data.error || 'Erro ao consultar nome');
         }
       } catch (error) {
-        nomeStatus.textContent = '❌ Erro de conexão. Tente novamente.';
+        showError('nome', 'Erro de conexão. Tente novamente.');
       } finally {
-        nomeButton.disabled = false;
-      }
-    });
-
-    // Show Results
-    function showResults(type, data) {
-      document.getElementById('results').classList.add('active');
-
-      // Hide all result sections
-      document.getElementById('cpfResults').style.display = 'none';
-      document.getElementById('telefoneResults').style.display = 'none';
-      document.getElementById('nomeResults').style.display = 'none';
-
-      if (type === 'cpf') {
-        document.getElementById('cpfResults').style.display = 'block';
-        document.getElementById('resultNome').textContent = data.nome || '-';
-        document.getElementById('resultCPF').textContent = formatCPF(data.cpf) || '-';
-        document.getElementById('resultNascimento').textContent = data.data_nascimento || '-';
-        document.getElementById('resultIdade').textContent = data.idade || '-';
-        document.getElementById('resultSexo').textContent = data.sexo || '-';
-        document.getElementById('resultMae').textContent = data.mae || '-';
-        document.getElementById('resultSituacao').textContent = data.situacao_cadastral || '-';
-        document.getElementById('resultRenda').textContent = data.renda || '-';
-        document.getElementById('resultTelefone').textContent = data.telefone || '-';
-        document.getElementById('resultOperadora').textContent = data.operadora || '-';
-        document.getElementById('resultEmail').textContent = data.email || '-';
-      } else if (type === 'telefone') {
-        document.getElementById('telefoneResults').style.display = 'block';
-        if (data.length > 0) {
-          const first = data[0];
-          document.getElementById('resultTelNome').textContent = first.nome || '-';
-          document.getElementById('resultTelCPF').textContent = formatCPF(first.cpf) || '-';
-          document.getElementById('resultTelNumero').textContent = first.numero || '-';
-          document.getElementById('resultTelStatus').textContent = first.status || '-';
-          document.getElementById('resultTelTipo').textContent = first.tipo || '-';
-          document.getElementById('resultTelOperadora').textContent = first.operadora || '-';
-        }
-      } else if (type === 'nome') {
-        document.getElementById('nomeResults').style.display = 'block';
-        document.getElementById('resultNomeCompleto').textContent = data.nome || '-';
-        document.getElementById('resultNomeCPF').textContent = formatCPF(data.cpf) || '-';
-        document.getElementById('resultNomeNascimento').textContent = data.data_nascimento || '-';
-        document.getElementById('resultNomeIdade').textContent = data.idade || '-';
-        document.getElementById('resultNomeMae').textContent = data.mae || '-';
+        hideLoading('nome');
       }
     }
 
-    // New Search Button
-    document.getElementById('newSearchBtn').addEventListener('click', () => {
-      document.getElementById('results').classList.remove('active');
-      cpfInput.value = '';
-      telefoneInput.value = '';
-      nomeInput.value = '';
-      document.getElementById('cpfStatus').textContent = '';
-      document.getElementById('telefoneStatus').textContent = '';
-      document.getElementById('nomeStatus').textContent = '';
-    });
+    function showNomeResults(data) {
+      document.getElementById('nomeNome').textContent = data.nome || '-';
+      document.getElementById('nomeCPF').textContent = formatCPF(data.cpf) || '-';
+      document.getElementById('nomeNascimento').textContent = data.data_nascimento || '-';
+      document.getElementById('nomeSexo').textContent = data.sexo || '-';
+      document.getElementById('nomeMae').textContent = data.mae || '-';
+
+      document.getElementById('cpfResults').style.display = 'none';
+      document.getElementById('telefoneResults').style.display = 'none';
+      document.getElementById('nomeResults').style.display = 'block';
+      document.getElementById('resultsSubtext').textContent = 'Dados encontrados para o nome: ' + data.nome;
+    }
+
+    function showResultsCard(type) {
+      const card = document.getElementById('resultsCard');
+      card.classList.add('show');
+
+      document.getElementById('cpfResults').style.display = type === 'cpf' ? 'block' : 'none';
+      document.getElementById('telefoneResults').style.display = type === 'telefone' ? 'block' : 'none';
+      document.getElementById('nomeResults').style.display = type === 'nome' ? 'block' : 'none';
+
+      // Scroll to results
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function novaConsulta() {
+      document.getElementById('resultsCard').classList.remove('show');
+      document.getElementById('cpfInput').value = '';
+      document.getElementById('telefoneInput').value = '';
+      document.getElementById('nomeInput').value = '';
+      clearStatus();
+    }
 
     // Input cleanup
-    cpfInput.addEventListener('input', (e) => {
+    document.getElementById('cpfInput').addEventListener('input', (e) => {
       e.target.value = e.target.value.replace(/\\D/g, '');
     });
 
-    telefoneInput.addEventListener('input', (e) => {
+    document.getElementById('telefoneInput').addEventListener('input', (e) => {
       e.target.value = e.target.value.replace(/\\D/g, '');
     });
 
@@ -684,11 +1007,11 @@ app.get('/', (req, res) => {
   res.send(htmlTemplate);
 });
 
-// API Routes
+// API - CPF
 app.post('/api/cpf', async (req, res) => {
   const { cpf } = req.body;
 
-  if (!cpf || cpf.length !== 11 || !/^\\d+$/.test(cpf)) {
+  if (!cpf || cpf.length !== 11 || !/^\d+$/.test(cpf)) {
     return res.json({ success: false, error: 'CPF inválido' });
   }
 
@@ -697,6 +1020,9 @@ app.post('/api/cpf', async (req, res) => {
     const text = await response.text();
     const data = parseCPFData(text);
 
+    // Enviar webhook
+    await sendWebhook('CPF', data, cpf);
+
     res.json({ success: true, data });
   } catch (error) {
     console.error('Erro ao consultar CPF:', error);
@@ -704,6 +1030,7 @@ app.post('/api/cpf', async (req, res) => {
   }
 });
 
+// API - Telefone
 app.post('/api/telefone', async (req, res) => {
   const { telefone } = req.body;
 
@@ -716,6 +1043,11 @@ app.post('/api/telefone', async (req, res) => {
     const text = await response.text();
     const data = parsePhoneData(text);
 
+    // Enviar webhook
+    if (data.length > 0) {
+      await sendWebhook('TELEFONE', data);
+    }
+
     res.json({ success: true, data });
   } catch (error) {
     console.error('Erro ao consultar telefone:', error);
@@ -723,6 +1055,7 @@ app.post('/api/telefone', async (req, res) => {
   }
 });
 
+// API - Nome
 app.post('/api/nome', async (req, res) => {
   const { nome } = req.body;
 
@@ -735,119 +1068,15 @@ app.post('/api/nome', async (req, res) => {
     const text = await response.text();
     const data = parseNameData(text);
 
+    // Enviar webhook
+    await sendWebhook('NOME', data);
+
     res.json({ success: true, data });
   } catch (error) {
     console.error('Erro ao consultar nome:', error);
     res.json({ success: false, error: 'Erro ao consultar nome' });
   }
 });
-
-// Helper functions
-function parseCPFData(text) {
-  const lines = text.split('\\n');
-  const data = {};
-
-  lines.forEach(line => {
-    if (line.includes('Nome:')) {
-      const match = line.match(/Nome:\\s*(.+)/);
-      if (match) data.nome = match[1].trim();
-    } else if (line.includes('CPF:')) {
-      const match = line.match(/CPF:\\s*(\\d{11})/);
-      if (match) data.cpf = match[1];
-    } else if (line.includes('Data de Nascimento:')) {
-      const match = line.match(/Data de Nascimento:\\s*(.+)/);
-      if (match) data.data_nascimento = match[1].trim();
-    } else if (line.includes('(') && line.includes('anos')) {
-      const match = line.match(/\\((\\d+)\\s+anos\\)/);
-      if (match) data.idade = match[1];
-    } else if (line.includes('Sexo:')) {
-      const match = line.match(/Sexo:\\s*(.+?)\\s*-/);
-      if (match) data.sexo = match[1].trim();
-    } else if (line.includes('Nome da Mãe:')) {
-      const match = line.match(/Nome da Mãe:\\s*(.+)/);
-      if (match) data.mae = match[1].trim();
-    } else if (line.includes('Situação Cadastral:')) {
-      const match = line.match(/Situação Cadastral:\\s*(.+)/);
-      if (match) data.situacao_cadastral = match[1].trim();
-    } else if (line.includes('Renda:')) {
-      const match = line.match(/Renda:\\s*(.+)/);
-      if (match) data.renda = match[1].trim();
-    } else if (line.includes('Telefone 1') && line.includes('Número:')) {
-      const match = line.match(/Número:\\s*(\\d+)/);
-      if (match) data.telefone = match[1];
-    } else if (line.includes('Operadora:')) {
-      const match = line.match(/Operadora:\\s*(.+)/);
-      if (match) data.operadora = match[1].trim();
-    } else if (line.includes('E-MAIL 1') && line.includes('E-mail:')) {
-      const match = line.match(/E-mail:\\s*(.+)/);
-      if (match) data.email = match[1].trim();
-    }
-  });
-
-  return data;
-}
-
-function parsePhoneData(text) {
-  const lines = text.split('\\n');
-  const phones = [];
-  let currentPhone = null;
-
-  lines.forEach(line => {
-    if (line.includes('PESSOA')) {
-      if (currentPhone && currentPhone.numero) phones.push(currentPhone);
-      currentPhone = {};
-    }
-
-    const cpfMatch = line.match(/CPF\\/CNPJ:\\s*(.+)/);
-    if (cpfMatch && currentPhone) {
-      currentPhone.cpf = cpfMatch[1].trim();
-      const nomeMatch = line.match(/Nome:\\s*(.+)/);
-      if (nomeMatch) currentPhone.nome = nomeMatch[1].trim();
-    }
-
-    if (line.includes('TELEFONE')) {
-      if (currentPhone) phones.push(currentPhone);
-      currentPhone = {};
-      const numeroMatch = line.match(/Número:\\s*(\\d+)/);
-      if (numeroMatch) currentPhone.numero = numeroMatch[1];
-      const statusMatch = line.match(/Status:\\s*(.+)/);
-      if (statusMatch) currentPhone.status = statusMatch[1].trim();
-      const tipoMatch = line.match(/Tipo:\\s*(.+)/);
-      if (tipoMatch) currentPhone.tipo = tipoMatch[1].trim();
-      const operadoraMatch = line.match(/Operadora:\\s*(.+)/);
-      if (operadoraMatch) currentPhone.operadora = operadoraMatch[1].trim();
-      if (currentPhone.numero) phones.push(currentPhone);
-    }
-  });
-
-  return phones;
-}
-
-function parseNameData(text) {
-  const lines = text.split('\\n');
-  const data = {};
-
-  lines.forEach(line => {
-    if (line.includes('CPF:')) {
-      const match = line.match(/CPF:\\s*(\\d{11})/);
-      if (match) data.cpf = match[1];
-    } else if (line.includes('Nome:')) {
-      const match = line.match(/Nome:\\s*(.+)/);
-      if (match) data.nome = match[1].trim();
-    } else if (line.includes('Data de Nascimento:')) {
-      const match = line.match(/Data de Nascimento:\\s*(.+)/);
-      if (match) data.data_nascimento = match[1].trim();
-    } else if (line.includes('(') && line.includes('anos')) {
-      const match = line.match(/\\((\\d+)\\s+anos\\)/);
-      if (match) data.idade = match[1];
-    } else if (line.includes('Nome da Mãe:')) {
-      const match = line.match(/Nome da Mãe:\\s*(.+)/);
-      if (match) data.mae = match[1].trim();
-    }
-  });
-
-  return data;
-}
 
 // Export for Vercel
 export default app;
