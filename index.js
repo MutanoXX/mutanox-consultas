@@ -11,13 +11,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 // SEÇÃO 2: Variáveis Globais e Constantes
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const API_KEY_AI = process.env.API_KEY_AI;
 
-// World Ecletix API Config (APIs de consulta NÃO precisam de API key)
+// World Ecletix API Config
 const WORLD_ECLETIX_BASE = 'https://world-ecletix.onrender.com/api';
 const API_ENDPOINTS = {
   consultaNome: `${WORLD_ECLETIX_BASE}/nome-completo`,
@@ -25,18 +25,18 @@ const API_ENDPOINTS = {
   consultaTelefone: `${WORLD_ECLETIX_BASE}/numero`
 };
 
-// Validar se variáveis obrigatórias estão setadas (aviso, sem process.exit para Vercel)
+// Validar se variáveis obrigatórias estão setadas (sem process.exit para Vercel)
 if (!WEBHOOK_URL) {
   console.warn('⚠️  Variável WEBHOOK_URL não está definida. O webhook não será enviado.');
 }
 
 console.log('✅ Servidor iniciando com configurações:');
 console.log(`📍 Webhook Discord: ${WEBHOOK_URL ? 'Configurado' : 'NÃO configurado'}`);
-console.log(`🔌 World Ecletix APIs: ✅ Prontas (sem necessidade de API key)`);
+console.log(`🔌 World Ecletix APIs: ✅ Prontas`);
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 // SEÇÃO 3: Funções Utilitárias
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 
 // Validar CPF
 function isValidCPF(cpf) {
@@ -87,58 +87,60 @@ function getFormattedTime() {
 
 // Enviar webhook para Discord
 async function sendDiscordWebhook(nome, cpf, dadosConsulta) {
+  if (!WEBHOOK_URL) return; // Não enviar se não houver URL
+
   try {
     const payload = {
       username: 'Mutanox Consultas Bot',
       avatar_url: 'https://via.placeholder.com/100',
       embeds: [
         {
-          title: '✅ Nova Consulta Realizada',
+          title: 'Nova Consulta Realizada',
           description: 'Uma nova consulta de CPF foi registrada no sistema',
           color: 5763719,
           fields: [
             {
-              name: '👤 Nome',
+              name: 'Nome',
               value: nome || 'N/A',
               inline: false
             },
             {
-              name: '🆔 CPF',
+              name: 'CPF',
               value: formatCPF(cpf),
               inline: false
             },
             {
-              name: '📅 Data de Nascimento',
+              name: 'Data de Nascimento',
               value: dadosConsulta.data_nascimento || 'N/A',
               inline: true
             },
             {
-              name: '⚧️ Gênero',
+              name: 'Gênero',
               value: dadosConsulta.genero || 'N/A',
               inline: true
             },
             {
-              name: '👪 Mãe',
+              name: 'Mãe',
               value: dadosConsulta.mae || 'N/A',
               inline: true
             },
             {
-              name: '📍 Naturalidade',
+              name: 'Naturalidade',
               value: dadosConsulta.naturalidade || 'N/A',
               inline: true
             },
             {
-              name: '✅ Situação Cadastral',
+              name: 'Situação Cadastral',
               value: dadosConsulta.situacao_cadastral || 'N/A',
               inline: true
             },
             {
-              name: '📱 Telefone',
+              name: 'Telefone',
               value: `${dadosConsulta.telefone || 'N/A'} (${dadosConsulta.operadora || 'N/A'})`,
               inline: true
             },
             {
-              name: '⏰ Horário da Consulta',
+              name: 'Horário da Consulta',
               value: getFormattedTime(),
               inline: false
             }
@@ -164,7 +166,7 @@ async function sendDiscordWebhook(nome, cpf, dadosConsulta) {
   }
 }
 
-// Consultar CPF (API World Ecletix - NÃO precisa de API key)
+// Consultar CPF (API World Ecletix)
 async function consultarCPF(cpf) {
   try {
     const url = new URL(API_ENDPOINTS.consultaCPF);
@@ -204,7 +206,7 @@ async function consultarCPF(cpf) {
   }
 }
 
-// Consultar Telefone (API World Ecletix - Complementar - NÃO precisa de API key)
+// Consultar Telefone (API World Ecletix - Complementar)
 async function consultarTelefone(cpf) {
   try {
     const url = new URL(API_ENDPOINTS.consultaTelefone);
@@ -232,10 +234,13 @@ async function consultarTelefone(cpf) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SEÇÃO 4: HTML do Frontend (Embutido como String)
-// ═══════════════════════════════════════════════════════════════════════════════
-const htmlTemplate = `<!DOCTYPE html>
+// ═════════════════════════════════════════════════════════════════════════════
+// SEÇÃO 4: Rotas (Endpoints)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// GET / - Servir HTML
+app.get('/', (req, res) => {
+  const htmlTemplate = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -644,7 +649,7 @@ const htmlTemplate = `<!DOCTYPE html>
 
     // Validar CPF em tempo real
     cpfInput.addEventListener('input', (e) => {
-      let value = e.target.value.replace(/\D/g, '');
+      let value = e.target.value.replace(/\\D/g, '');
       e.target.value = value;
 
       if (value.length === 11 && isValidCPF(value)) {
@@ -656,7 +661,7 @@ const htmlTemplate = `<!DOCTYPE html>
 
     // Validar CPF (módulo 11)
     function isValidCPF(cpf) {
-      if (/^(\d)\1{10}$/.test(cpf)) return false;
+      if (/^(\\d)\\1{10}$/.test(cpf)) return false;
 
       let soma = 0;
       for (let i = 0; i < 9; i++) {
@@ -679,7 +684,7 @@ const htmlTemplate = `<!DOCTYPE html>
 
     // Formatar CPF para exibição
     function formatCPF(cpf) {
-      return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+      return cpf.replace(/(\\d{3})(\\d{3})(\\d{3})(\\d{2})/, '$1.$2.$3-$4');
     }
 
     // Consultar CPF
@@ -747,13 +752,13 @@ const htmlTemplate = `<!DOCTYPE html>
         (data.telefone || '-') + (data.operadora ? ' (' + data.operadora + ')' : '');
 
       resultCard.classList.add('show');
-      status.textContent = '✅ Consulta realizada com sucesso!';
+      status.textContent = 'Consulta realizada com sucesso!';
     }
 
     function showError(message) {
       errorMessage.textContent = message;
       errorCard.classList.add('show');
-      status.textContent = '❌ Ocorreu um erro na consulta.';
+      status.textContent = 'Ocorreu um erro na consulta.';
     }
 
     function hideResults() {
@@ -764,12 +769,6 @@ const htmlTemplate = `<!DOCTYPE html>
 </body>
 </html>`;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SEÇÃO 5: Rotas (Endpoints)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// GET / - Servir HTML
-app.get('/', (req, res) => {
   res.send(htmlTemplate);
 });
 
@@ -786,7 +785,7 @@ app.post('/api/consultar', async (req, res) => {
   }
 
   try {
-    // Chamar API de consulta CPF (World Ecletix - sem API key)
+    // Chamar API de consulta CPF (World Ecletix)
     const dadosConsulta = await consultarCPF(cpf);
 
     if (dadosConsulta.error) {
@@ -796,7 +795,7 @@ app.post('/api/consultar', async (req, res) => {
       });
     }
 
-    // Buscar telefone complementar (World Ecletix - sem API key)
+    // Buscar telefone complementar (World Ecletix)
     const dadosTelefone = await consultarTelefone(cpf);
     dadosConsulta.telefone = dadosTelefone.telefone;
     dadosConsulta.operadora = dadosTelefone.operadora;
@@ -821,6 +820,12 @@ app.post('/api/consultar', async (req, res) => {
 
 // Catch-all para rotas não existentes
 app.use((req, res) => {
+  res.status(404).json({ error: 'Rota não encontrada' });
+});
 
-// Export para Vercel Serverless
+// ═════════════════════════════════════════════════════════════════════════════
+// SEÇÃO 5: Export para Vercel
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Export padrão para Vercel
 export default app;
