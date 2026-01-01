@@ -1,0 +1,78 @@
+{
+  "app": {
+    "name": "Mutanox Consultas",
+    "version": "2.1.0",
+    "description": "Sistema de Consultas CPF com APIs Reais",
+    "author": "MutanoX (@mutanomodsx)",
+    "credits": {
+      "instagram": "https://www.instagram.com/mutanomodsx?igsh=NDYycjh0anlwcm16",
+      "github": "https://github.com/MutanoXX/mutanox-consultas"
+    }
+  },
+
+  "server": {
+    "port": 3000,
+    "host": "0.0.0.0",
+    "timeout": 30000
+  },
+
+  "apis": {
+    "worldEcletix": {
+      "baseUrl": "https://world-ecletix.onrender.com/api",
+      "endpoints": {
+        "consultaNome": "/nome-completo",
+        "consultaCPF": "/consultarcpf",
+        "consultaTelefone": "/numero"
+      },
+      "timeout": 30000,
+      "rateLimit": 100,
+      "requireApiKey": false,
+      "priority": 1,
+      "enabled": true,
+      "notes": "APIs de consulta NÃO precisam de API key. Apenas o AnaBot precisa."
+    },
+
+    "anabot": {
+      "provider": "anabot.my.id",
+      "endpoint": "https://anabot.my.id/api/ai/chatzai",
+      "model": "glm-4.6",
+      "maxTokens": 4096,
+      "temperature": 0.7,
+      "timeout": 60000,
+      "requireApiKey": true,
+      "enabled": false,
+      "description": "IA para análise e respostas inteligentes (opcional)"
+    }
+  },
+
+  "discord": {
+    "embedColor": 5763719,
+    "botName": "Mutanox Consultas Bot",
+    "enabled": true,
+    "required": true
+  },
+
+  "security": {
+    "enableRateLimit": true,
+    "maxRequestsPerMinute": 60,
+    "enableIPBlocking": false,
+    "enableInputValidation": true,
+    "enableCSRFProtection": true,
+    "enableXSSProtection": true,
+    "allowedOrigins": ["*"],
+    "enableCORS": true,
+    "notes": "APIs de consulta públicas, sem necessidade de autenticação"
+  },
+
+  "cache": {
+    "enabled": false,
+    "ttl": 3600,
+    "strategy": "memory"
+  },
+
+  "logging": {
+    "level": "info",
+    "enableConsole": true,
+    "enableFileLogging": false
+  }
+}
