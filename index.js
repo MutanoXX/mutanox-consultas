@@ -25,11 +25,9 @@ const API_ENDPOINTS = {
   consultaTelefone: `${WORLD_ECLETIX_BASE}/numero`
 };
 
-// Validar se variáveis obrigatórias estão setadas
+// Validar se variáveis obrigatórias estão setadas (aviso, sem process.exit para Vercel)
 if (!WEBHOOK_URL) {
-  console.error('❌ Variável de ambiente faltando!');
-  console.error('Certifique-se de definir: WEBHOOK_URL');
-  process.exit(1);
+  console.warn('⚠️  Variável WEBHOOK_URL não está definida. O webhook não será enviado.');
 }
 
 console.log('✅ Servidor iniciando com configurações:');
@@ -823,15 +821,6 @@ app.post('/api/consultar', async (req, res) => {
 
 // Catch-all para rotas não existentes
 app.use((req, res) => {
-  res.status(404).json({ error: 'Rota não encontrada' });
-});
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SEÇÃO 6: Iniciar Servidor
-// ═══════════════════════════════════════════════════════════════════════════════
-app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando em http://localhost:${PORT}`);
-  console.log(`📍 Webhook Discord: ${WEBHOOK_URL ? '✅ Configurado' : '❌ Não configurado'}`);
-  console.log(`🔌 World Ecletix APIs: ✅ Prontas`);
-  console.log('═══════════════════════════════════════════════════════════');
-});
+// Export para Vercel Serverless
+export default app;
