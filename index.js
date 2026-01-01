@@ -3,7 +3,9 @@ import cors from 'cors';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://discord.com/api/webhooks/1456066499981611197/FpVJ-hWYVBXmKi4WcjimWXunxswV8_31e5WORFxngqDM7W3oMSjvOeBSqg7PWa2gO40c';
+
+// Agora a URL vem APENAS da variável de ambiente
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 // Middleware
 app.use(cors());
@@ -14,6 +16,12 @@ const API_BASE = 'https://world-ecletix.onrender.com/api';
 
 // Webhook Discord
 async function sendWebhook(tipo, dados, cpf = '') {
+  // Se a variável de ambiente não estiver definida, ele ignora o envio e loga no console
+  if (!WEBHOOK_URL) {
+    console.log('⚠️ WEBHOOK_URL não configurada. Pulando envio para o Discord.');
+    return;
+  }
+
   try {
     const color = tipo === 'CPF' ? 0x9333ea : tipo === 'TELEFONE' ? 0x00bfff : tipo === 'NOME' ? 0x00ff88 : 0xff0000;
 
@@ -1016,7 +1024,8 @@ app.post('/api/cpf', async (req, res) => {
   }
 
   try {
-    const response = await fetch(\`\${API_BASE}/consultarcpf?cpf=\${cpf}\`);
+    // CORRIGIDO AQUI: Removida a barra invertida antes da crase
+    const response = await fetch(`${API_BASE}/consultarcpf?cpf=${cpf}`);
     const text = await response.text();
     const data = parseCPFData(text);
 
@@ -1039,7 +1048,8 @@ app.post('/api/telefone', async (req, res) => {
   }
 
   try {
-    const response = await fetch(\`\${API_BASE}/numero?q=\${telefone}\`);
+    // CORRIGIDO AQUI: Removida a barra invertida antes da crase
+    const response = await fetch(`${API_BASE}/numero?q=${telefone}`);
     const text = await response.text();
     const data = parsePhoneData(text);
 
@@ -1064,7 +1074,8 @@ app.post('/api/nome', async (req, res) => {
   }
 
   try {
-    const response = await fetch(\`\${API_BASE}/nome-completo?q=\${encodeURIComponent(nome)}\`);
+    // CORRIGIDO AQUI: Removida a barra invertida antes da crase
+    const response = await fetch(`${API_BASE}/nome-completo?q=${encodeURIComponent(nome)}`);
     const text = await response.text();
     const data = parseNameData(text);
 
